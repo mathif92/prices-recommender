@@ -106,7 +106,7 @@ func TestRunSuccessfulCollection(t *testing.T) {
 	log := discardLogger()
 
 	jc := NewCollector(log, db, recorder, nil)
-	err := jc.Run(ctx)
+	err := jc.Run(ctx, 1)
 	require.NoError(t, err)
 
 	params := recorder.Params()
@@ -138,7 +138,7 @@ func TestRunNoSettings(t *testing.T) {
 	log := discardLogger()
 
 	jc := NewCollector(log, db, recorder, nil)
-	err := jc.Run(ctx)
+	err := jc.Run(ctx, 1)
 	assert.Error(t, err)
 	assert.Empty(t, recorder.Params())
 }
@@ -164,7 +164,7 @@ func TestRunWithPartialSettings(t *testing.T) {
 	log := discardLogger()
 
 	jc := NewCollector(log, db, recorder, nil)
-	err = jc.Run(ctx)
+	err = jc.Run(ctx, 1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "collect dates")
 	assert.Empty(t, recorder.Params())

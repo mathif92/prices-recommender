@@ -7,12 +7,17 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mathif92/prices-recommender/internal/dal/testhelpers"
 	"github.com/mathif92/prices-recommender/pkg/repositories"
 )
+
+type noopWriter struct{}
+
+func (noopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 var sharedDB *sqlx.DB
 
@@ -189,8 +194,10 @@ func TestDetectDeduplicatesByHotelAndDates(t *testing.T) {
 }
 
 func TestNotifierSkipsWhenNotConfigured(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(noopWriter{})
 	cfg := Config{SMTPServer: "", SMTPFrom: "test@example.com"}
-	n := NewNotifier(cfg)
+	n := NewNotifier(log, cfg)
 
 	err := n.SendPriceDropAlertIfConfigured("", []PriceDrop{
 		{HotelName: "Test Hotel", Location: "Cancun", OldPrice: 500, NewPrice: 400, Currency: "USD", DropRatio: 0.20},
@@ -204,8 +211,10 @@ func TestNotifierSkipsWhenNotConfigured(t *testing.T) {
 }
 
 func TestNotifierEmptyDrops(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(noopWriter{})
 	cfg := Config{SMTPServer: "smtp.example.com"}
-	n := NewNotifier(cfg)
+	n := NewNotifier(log, cfg)
 
 	err := n.SendPriceDropAlertIfConfigured("user@example.com", nil)
 	assert.NoError(t, err)

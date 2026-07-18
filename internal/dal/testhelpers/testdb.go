@@ -126,6 +126,7 @@ func TruncateTables(t *testing.T, db *sqlx.DB) {
 	t.Helper()
 
 	tables := []string{
+		"collection_schedules",
 		"prices",
 		"hotel_reviews",
 		"hotel_ratings",
@@ -151,6 +152,7 @@ func TruncateExcept(t *testing.T, db *sqlx.DB, except ...string) {
 	}
 
 	tables := []string{
+		"collection_schedules",
 		"prices",
 		"hotel_reviews",
 		"hotel_ratings",

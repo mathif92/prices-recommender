@@ -30,6 +30,7 @@ func encodeParams(params map[string]string) string {
 type Client interface {
 	GetFlights(ctx context.Context, origin string, destination string, startDate time.Time, endDate time.Time) (*GetFlightsResponse, error)
 	GetHotels(ctx context.Context, params types.CollectParams) (*GetHotelsResponse, error)
+	GetHotelsWithPageToken(ctx context.Context, params types.CollectParams, pageToken string) (*GetHotelsResponse, error)
 	GetPackages(ctx context.Context, origin string, destination string, startDate time.Time, endDate time.Time) (*GetPackagesResponse, error)
 }
 
@@ -98,7 +99,24 @@ func (c *client) GetHotels(
 	ctx context.Context,
 	params types.CollectParams,
 ) (*GetHotelsResponse, error) {
-	q := encodeParams(map[string]string{
+	return c.getHotelsWithToken(ctx, params, "")
+}
+
+// GetHotelsWithPageToken retrieves the next page of hotel results using a pagination token.
+func (c *client) GetHotelsWithPageToken(
+	ctx context.Context,
+	params types.CollectParams,
+	pageToken string,
+) (*GetHotelsResponse, error) {
+	return c.getHotelsWithToken(ctx, params, pageToken)
+}
+
+func (c *client) getHotelsWithToken(
+	ctx context.Context,
+	params types.CollectParams,
+	pageToken string,
+) (*GetHotelsResponse, error) {
+	p := map[string]string{
 		"engine":         googleHotelsEngine,
 		"q":              params.Destination,
 		"check_in_date":  params.CheckIn.Format("2006-01-02"),
@@ -109,7 +127,11 @@ func (c *client) GetHotels(
 		"property_types": params.PropertyTypes,
 		"amenities":      params.Amenities,
 		"api_key":        c.apiKey,
-	})
+	}
+	if pageToken != "" {
+		p["next_page_token"] = pageToken
+	}
+	q := encodeParams(p)
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"?"+q, nil)
 	if err != nil {
 		return nil, err

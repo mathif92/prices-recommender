@@ -36,6 +36,12 @@ type DataRepository interface {
 	GetUserByID(ctx context.Context, id int64) (*User, error)
 	GetUserByGoogleID(ctx context.Context, googleID string) (*User, error)
 	UpdateUser(ctx context.Context, user User) error
+	ListActiveSchedules(ctx context.Context) ([]CollectionSchedule, error)
+	ListSchedulesByUser(ctx context.Context, userID int64) ([]CollectionSchedule, error)
+	GetSchedule(ctx context.Context, id, userID int64) (*CollectionSchedule, error)
+	CreateSchedule(ctx context.Context, schedule CollectionSchedule) (CollectionSchedule, error)
+	UpdateSchedule(ctx context.Context, schedule CollectionSchedule) error
+	DeleteSchedule(ctx context.Context, id, userID int64) error
 }
 
 type dataRepository struct {
@@ -420,4 +426,60 @@ func (r *dataRepository) GetCurrentPrice(ctx context.Context, hotelID int64, sta
 		return nil, err
 	}
 	return &price, nil
+}
+
+func (r *dataRepository) ListActiveSchedules(ctx context.Context) ([]CollectionSchedule, error) {
+	var schedules []CollectionSchedule
+	if err := r.readDB.SelectContext(ctx, &schedules, "SELECT id, user_id, cron_expression, is_active, created_at, updated_at FROM collection_schedules WHERE is_active = TRUE ORDER BY created_at DESC"); err != nil {
+		return nil, err
+	}
+	return schedules, nil
+}
+
+func (r *dataRepository) ListSchedulesByUser(ctx context.Context, userID int64) ([]CollectionSchedule, error) {
+	var schedules []CollectionSchedule
+	if err := r.readDB.SelectContext(ctx, &schedules, dbQueries[listSchedulesByUser], userID); err != nil {
+		return nil, err
+	}
+	return schedules, nil
+}
+
+func (r *dataRepository) GetSchedule(ctx context.Context, id, userID int64) (*CollectionSchedule, error) {
+	var schedule CollectionSchedule
+	if err := r.readDB.GetContext(ctx, &schedule, dbQueries[getSchedule], id, userID); err != nil {
+		return nil, err
+	}
+	return &schedule, nil
+}
+
+func (r *dataRepository) CreateSchedule(ctx context.Context, schedule CollectionSchedule) (CollectionSchedule, error) {
+	query := dbQueries[insertSchedule]
+	stmt, err := r.writeDB.PrepareNamedContext(ctx, query)
+	if err != nil {
+		return schedule, err
+	}
+	defer stmt.Close()
+
+	var id int64
+	if err := stmt.QueryRowxContext(ctx, map[string]any{
+		"user_id":         schedule.UserID,
+		"cron_expression": schedule.CronExpression,
+		"is_active":       schedule.IsActive,
+		"created_at":      schedule.CreatedAt,
+		"updated_at":      schedule.UpdatedAt,
+	}).Scan(&id); err != nil {
+		return schedule, err
+	}
+	schedule.ID = id
+	return schedule, nil
+}
+
+func (r *dataRepository) UpdateSchedule(ctx context.Context, schedule CollectionSchedule) error {
+	_, err := r.writeDB.NamedExecContext(ctx, dbQueries[updateSchedule], schedule)
+	return err
+}
+
+func (r *dataRepository) DeleteSchedule(ctx context.Context, id, userID int64) error {
+	_, err := r.writeDB.ExecContext(ctx, dbQueries[deleteSchedule], id, userID)
+	return err
 }

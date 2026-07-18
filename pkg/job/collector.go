@@ -18,7 +18,6 @@ const (
 	HotelsParamsSettingKey = "collect_hotels_params"
 	CollectDatesSettingKey = "collect_dates"
 	NotificationEmailKey   = "notification_email"
-	UserID                 = 1
 )
 
 type collectHotelsSettings struct {
@@ -56,9 +55,9 @@ func NewCollector(log logrus.FieldLogger, db *sqlx.DB, collector collector.Colle
 	}
 }
 
-func (c *Collector) Run(ctx context.Context) error {
+func (c *Collector) Run(ctx context.Context, userID int64) error {
 	var hotelsRaw string
-	err := c.db.GetContext(ctx, &hotelsRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", HotelsParamsSettingKey, UserID)
+	err := c.db.GetContext(ctx, &hotelsRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", HotelsParamsSettingKey, userID)
 	if err != nil {
 		return fmt.Errorf("failed to read hotels params setting: %w", err)
 	}
@@ -69,7 +68,7 @@ func (c *Collector) Run(ctx context.Context) error {
 	}
 
 	var datesRaw string
-	err = c.db.GetContext(ctx, &datesRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", CollectDatesSettingKey, UserID)
+	err = c.db.GetContext(ctx, &datesRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", CollectDatesSettingKey, userID)
 	if err != nil {
 		return fmt.Errorf("failed to read collect dates setting: %w", err)
 	}
@@ -121,17 +120,31 @@ func (c *Collector) Run(ctx context.Context) error {
 
 	drops := c.collector.Drops()
 	if len(drops) > 0 {
-		c.sendPriceDropAlert(ctx, drops)
+		c.sendPriceDropAlert(ctx, userID, drops)
 	}
 
 	return nil
 }
 
-func (c *Collector) sendPriceDropAlert(ctx context.Context, drops []recommendations.PriceDrop) {
-	c.log.Infof("detected %d price drop(s)", len(drops))
+func (c *Collector) sendPriceDropAlert(ctx context.Context, userID int64, drops []recommendations.PriceDrop) {
+	c.log.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	c.log.Infof("  PRICE DROPS DETECTED: %d hotel%s", len(drops), plural(len(drops)))
+	c.log.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	for i, d := range drops {
+		c.log.Infof("  %d. %s", i+1, d.HotelName)
+		c.log.Infof("     Location:  %s", d.Location)
+		c.log.Infof("     Dates:     %s → %s", d.StartDate.Format("Jan 2, 2006"), d.EndDate.Format("Jan 2, 2006"))
+		c.log.Infof("     Price:     %.2f %s → %.2f %s (−%.0f%%)", d.OldPrice, d.Currency, d.NewPrice, d.Currency, d.DropRatio*100)
+		if i < len(drops)-1 {
+			c.log.Info("     ─────────────────────────────────────────")
+		}
+	}
+
+	c.log.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var emailRaw string
-	err := c.db.GetContext(ctx, &emailRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", NotificationEmailKey, UserID)
+	err := c.db.GetContext(ctx, &emailRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", NotificationEmailKey, userID)
 	if err != nil || emailRaw == "" {
 		c.log.Warn("no notification_email setting found, skipping email")
 		return
@@ -143,4 +156,11 @@ func (c *Collector) sendPriceDropAlert(ctx context.Context, drops []recommendati
 	}
 
 	c.log.Infof("sent price drop alert to %s", emailRaw)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

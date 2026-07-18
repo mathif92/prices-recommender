@@ -81,3 +81,12 @@ type HotelWithPrices struct {
 	PriceCurrency string  `db:"price_currency" json:"price_currency"`
 	PriceCount    int     `db:"price_count" json:"price_count"`
 }
+
+type CollectionSchedule struct {
+	ID             int64      `db:"id" json:"id"`
+	UserID         int64      `db:"user_id" json:"user_id"`
+	CronExpression string     `db:"cron_expression" json:"cron_expression"`
+	IsActive       bool       `db:"is_active" json:"is_active"`
+	CreatedAt      *time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt      *time.Time `db:"updated_at" json:"updated_at"`
+}

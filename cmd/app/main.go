@@ -19,6 +19,7 @@ import (
 	"github.com/mathif92/prices-recommender/pkg/job"
 	"github.com/mathif92/prices-recommender/pkg/recommendations"
 	"github.com/mathif92/prices-recommender/pkg/repositories"
+	"github.com/mathif92/prices-recommender/pkg/scheduler"
 
 	"github.com/mathif92/prices-recommender/pkg/api"
 
@@ -59,7 +60,7 @@ func main() {
 	dataRepo := repositories.NewDataRepository(db, db)
 	serpapiCollector := serpapicollector.NewCollector(apiClient, dataRepo)
 	mainCollector := collector.NewCollector(log, serpapiCollector)
-	notifier := recommendations.NewNotifier(recommendations.Config{
+	notifier := recommendations.NewNotifier(log, recommendations.Config{
 		SMTPServer: getEnv("SMTP_SERVER", ""),
 		SMTPPort:   getEnv("SMTP_PORT", "587"),
 		SMTPUser:   getEnv("SMTP_USER", ""),
@@ -69,10 +70,13 @@ func main() {
 
 	jobCollector := job.NewCollector(log, db, mainCollector, notifier)
 
+	sched := scheduler.NewScheduler(log, dataRepo, jobCollector)
+
 	apiHandler := api.NewHandler(api.Config{
 		Log:            log,
 		Repo:           dataRepo,
 		Collector:      jobCollector,
+		Scheduler:      sched,
 		JWTSecret:      jwtSecret,
 		GoogleClientID: getEnv("GOOGLE_CLIENT_ID", ""),
 		GoogleSecret:   getEnv("GOOGLE_CLIENT_SECRET", ""),
@@ -90,6 +94,10 @@ func main() {
 		Handler: mux,
 	}
 
+	if err := sched.Start(context.Background()); err != nil {
+		log.Warnf("failed to start scheduler: %v", err)
+	}
+
 	go func() {
 		log.Infof("http server listening on :%s", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -101,6 +109,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Info("shutting down...")
+	sched.Stop()
 	server.Shutdown(context.Background())
 }
 

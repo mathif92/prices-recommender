@@ -17,13 +17,19 @@ import (
 )
 
 type CollectorRunner interface {
-	Run(ctx context.Context) error
+	Run(ctx context.Context, userID int64) error
+}
+
+type SchedulerRunner interface {
+	AddSchedule(schedule repositories.CollectionSchedule)
+	RemoveSchedule(scheduleID int64)
 }
 
 type Handler struct {
 	log        logrus.FieldLogger
 	repo       repositories.DataRepository
 	collector  CollectorRunner
+	scheduler  SchedulerRunner
 	mux        *http.ServeMux
 	jwtSecret  string
 	googleAuth *auth.GoogleHandler
@@ -33,6 +39,7 @@ type Config struct {
 	Log              logrus.FieldLogger
 	Repo             repositories.DataRepository
 	Collector        CollectorRunner
+	Scheduler        SchedulerRunner
 	JWTSecret        string
 	GoogleClientID   string
 	GoogleSecret     string
@@ -45,6 +52,7 @@ func NewHandler(cfg Config) *Handler {
 		log:       cfg.Log,
 		repo:      cfg.Repo,
 		collector: cfg.Collector,
+		scheduler: cfg.Scheduler,
 		jwtSecret: cfg.JWTSecret,
 	}
 
@@ -72,11 +80,15 @@ func NewHandler(cfg Config) *Handler {
 	protected.HandleFunc("/api/settings/", h.handleSettingByKey)
 	protected.HandleFunc("/api/vacations", h.handleVacations)
 	protected.HandleFunc("/api/collect", h.handleCollect)
+	protected.HandleFunc("/api/schedules", h.handleSchedules)
+	protected.HandleFunc("/api/schedules/", h.handleScheduleByID)
 
 	h.mux.Handle("/api/settings", h.withAuth(protected))
 	h.mux.Handle("/api/settings/", h.withAuth(protected))
 	h.mux.Handle("/api/vacations", h.withAuth(protected))
 	h.mux.Handle("/api/collect", h.withAuth(protected))
+	h.mux.Handle("/api/schedules", h.withAuth(protected))
+	h.mux.Handle("/api/schedules/", h.withAuth(protected))
 
 	h.mux.HandleFunc("/api/hotels", h.handleHotels)
 	h.mux.HandleFunc("/api/hotels/", h.handleHotelByID)
@@ -311,10 +323,12 @@ func (h *Handler) handleCollect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := h.userIDFromRequest(r)
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 
-	if err := h.collector.Run(ctx); err != nil {
+	if err := h.collector.Run(ctx, userID); err != nil {
 		h.log.Errorf("collection failed: %v", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -655,4 +669,154 @@ func (h *Handler) indexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprint(w, "prices-recommender API")
+}
+
+func (h *Handler) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.listSchedules(w, r)
+	case http.MethodPost:
+		h.createSchedule(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h *Handler) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/schedules/")
+	if idStr == "" || idStr == "/" {
+		h.handleSchedules(w, r)
+		return
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid schedule id")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		h.getSchedule(w, r, id)
+	case http.MethodPatch:
+		h.toggleSchedule(w, r, id)
+	case http.MethodDelete:
+		h.deleteSchedule(w, r, id)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (h *Handler) listSchedules(w http.ResponseWriter, r *http.Request) {
+	userID := h.userIDFromRequest(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	schedules, err := h.repo.ListSchedulesByUser(ctx, userID)
+	if err != nil {
+		h.log.Errorf("failed to list schedules: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list schedules")
+		return
+	}
+	if schedules == nil {
+		schedules = []repositories.CollectionSchedule{}
+	}
+	writeJSON(w, http.StatusOK, schedules)
+}
+
+func (h *Handler) getSchedule(w http.ResponseWriter, r *http.Request, id int64) {
+	userID := h.userIDFromRequest(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	schedule, err := h.repo.GetSchedule(ctx, id, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "schedule not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, schedule)
+}
+
+func (h *Handler) createSchedule(w http.ResponseWriter, r *http.Request) {
+	userID := h.userIDFromRequest(r)
+
+	var body struct {
+		CronExpression string `json:"cron_expression"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.CronExpression == "" {
+		writeError(w, http.StatusBadRequest, "cron_expression is required")
+		return
+	}
+
+	now := time.Now()
+	schedule := repositories.CollectionSchedule{
+		UserID:         userID,
+		CronExpression: body.CronExpression,
+		IsActive:       true,
+		CreatedAt:      &now,
+		UpdatedAt:      &now,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	saved, err := h.repo.CreateSchedule(ctx, schedule)
+	if err != nil {
+		h.log.Errorf("failed to create schedule: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create schedule")
+		return
+	}
+
+	h.scheduler.AddSchedule(saved)
+
+	writeJSON(w, http.StatusCreated, saved)
+}
+
+func (h *Handler) toggleSchedule(w http.ResponseWriter, r *http.Request, id int64) {
+	userID := h.userIDFromRequest(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	schedule, err := h.repo.GetSchedule(ctx, id, userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "schedule not found")
+		return
+	}
+
+	schedule.IsActive = !schedule.IsActive
+	now := time.Now()
+	schedule.UpdatedAt = &now
+
+	if err := h.repo.UpdateSchedule(ctx, *schedule); err != nil {
+		h.log.Errorf("failed to update schedule: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update schedule")
+		return
+	}
+
+	if schedule.IsActive {
+		h.scheduler.AddSchedule(*schedule)
+	} else {
+		h.scheduler.RemoveSchedule(schedule.ID)
+	}
+
+	writeJSON(w, http.StatusOK, schedule)
+}
+
+func (h *Handler) deleteSchedule(w http.ResponseWriter, r *http.Request, id int64) {
+	userID := h.userIDFromRequest(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := h.repo.DeleteSchedule(ctx, id, userID); err != nil {
+		h.log.Errorf("failed to delete schedule: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete schedule")
+		return
+	}
+
+	h.scheduler.RemoveSchedule(id)
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

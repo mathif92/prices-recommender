@@ -50,7 +50,26 @@ func (d *serpApiCollector) collectHotels(ctx context.Context, params types.Colle
 		return nil, fmt.Errorf("failed to get hotels from SerpAPI: %w", err)
 	}
 
-	data := mapPropertiesToHotelData(hotelsResponse.Properties, params)
+	allProperties := make([]serpapi.Property, 0, len(hotelsResponse.Properties))
+	allProperties = append(allProperties, hotelsResponse.Properties...)
+
+	pageToken := hotelsResponse.SerpapiPagination.NextPageToken
+	for pageToken != "" {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		nextResponse, err := d.apiClient.GetHotelsWithPageToken(ctx, params, pageToken)
+		if err != nil {
+			break
+		}
+		allProperties = append(allProperties, nextResponse.Properties...)
+		pageToken = nextResponse.SerpapiPagination.NextPageToken
+	}
+
+	data := mapPropertiesToHotelData(allProperties, params)
 
 	hotelModels := make([]repositories.Hotel, 0, len(data))
 	for _, hd := range data {

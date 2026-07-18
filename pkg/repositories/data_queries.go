@@ -35,6 +35,12 @@ const (
 	getUserByID
 	getUserByGoogleID
 	updateUser
+
+	insertSchedule
+	listSchedulesByUser
+	getSchedule
+	updateSchedule
+	deleteSchedule
 )
 
 var dbQueries map[dbQuery]string = map[dbQuery]string{
@@ -252,5 +258,29 @@ var dbQueries map[dbQuery]string = map[dbQuery]string{
 			display_name = :display_name,
 			avatar_url = :avatar_url
 		WHERE id = :id
+	`,
+	insertSchedule: `
+		INSERT INTO collection_schedules (user_id, cron_expression, is_active, created_at, updated_at)
+		VALUES (:user_id, :cron_expression, :is_active, :created_at, :updated_at)
+		RETURNING id
+	`,
+	listSchedulesByUser: `
+		SELECT id, user_id, cron_expression, is_active, created_at, updated_at
+		FROM collection_schedules
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`,
+	getSchedule: `
+		SELECT id, user_id, cron_expression, is_active, created_at, updated_at
+		FROM collection_schedules
+		WHERE id = $1 AND user_id = $2
+	`,
+	updateSchedule: `
+		UPDATE collection_schedules
+		SET is_active = :is_active, updated_at = :updated_at
+		WHERE id = :id AND user_id = :user_id
+	`,
+	deleteSchedule: `
+		DELETE FROM collection_schedules WHERE id = $1 AND user_id = $2
 	`,
 }
