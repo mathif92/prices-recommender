@@ -56,6 +56,8 @@ func NewCollector(log logrus.FieldLogger, db *sqlx.DB, collector collector.Colle
 }
 
 func (c *Collector) Run(ctx context.Context, userID int64) error {
+	c.collector.ResetDrops()
+
 	var hotelsRaw string
 	err := c.db.GetContext(ctx, &hotelsRaw, "SELECT setting_value FROM user_settings WHERE setting_key = $1 AND user_id = $2 LIMIT 1", HotelsParamsSettingKey, userID)
 	if err != nil {

@@ -44,6 +44,10 @@ func (d *serpApiCollector) Drops() []recommendations.PriceDrop {
 	return d.drops
 }
 
+func (d *serpApiCollector) ResetDrops() {
+	d.drops = nil
+}
+
 func (d *serpApiCollector) collectHotels(ctx context.Context, params types.CollectParams) ([]types.HotelData, error) {
 	hotelsResponse, err := d.apiClient.GetHotels(ctx, params)
 	if err != nil {

@@ -12,6 +12,7 @@ type Collector interface {
 	Collect(ctx context.Context, params types.CollectParams) ([]types.HotelData, error)
 	Name() string
 	Drops() []recommendations.PriceDrop
+	ResetDrops()
 }
 
 type collector struct {
@@ -50,4 +51,10 @@ func (c *collector) Drops() []recommendations.PriceDrop {
 		all = append(all, col.Drops()...)
 	}
 	return all
+}
+
+func (c *collector) ResetDrops() {
+	for _, col := range c.collectors {
+		col.ResetDrops()
+	}
 }

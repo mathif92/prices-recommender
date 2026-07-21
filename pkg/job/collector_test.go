@@ -36,6 +36,8 @@ func (c *recordingCollector) Drops() []recommendations.PriceDrop {
 	return nil
 }
 
+func (c *recordingCollector) ResetDrops() {}
+
 func (c *recordingCollector) Params() []types.CollectParams {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -31,6 +31,8 @@ func (f *fakeCollector) Drops() []recommendations.PriceDrop {
 	return nil
 }
 
+func (f *fakeCollector) ResetDrops() {}
+
 func discardLogger() *logrus.Logger {
 	log := logrus.New()
 	log.SetOutput(noopWriter{})
